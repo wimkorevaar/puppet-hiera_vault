@@ -37,7 +37,8 @@ describe FakeFunction do
       'mounts' => {
         VAULT_PATH + "/data" => [
           'common',
-          'rproxy,api'
+          'rproxy,api',
+          '/'
         ]
       }
     }
