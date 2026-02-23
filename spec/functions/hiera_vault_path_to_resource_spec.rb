@@ -67,7 +67,7 @@ describe FakeFunction do
   describe '#lookup_key with' do
     context 'accessing vault with v2 path' do
       context 'when vault is unsealed' do
-        before do
+        before(:context) do
           vault_test_client.sys.mount('puppet_resource', 'kv', 'puppet secrets for resources', { options: { version: '2' } })
           vault_test_client.logical.write('puppet_resource/data/common/test/resources/resource_1', { data: { number_property: 10, array_property: ['a b c'], hash_property: { a: 1, b: 2, c: 3 }, text_property: 'text1' } })
           vault_test_client.logical.write('puppet_resource/data/common/test/resources/resource_2', { data: { number_property: 20, array_property: ['d e f'], hash_property: { d: 4, e: 5, f: 6 }, text_property: 'text2' } })
@@ -76,7 +76,7 @@ describe FakeFunction do
         context 'configuring vault' do
           let :context do
             ctx = instance_double('Puppet::LookupContext')
-            allow(ctx).to receive(:cache_has_key).and.return(false)
+            allow(ctx).to receive(:cache_has_key).and_return(false)
             allow(ctx).to receive(:explain) { |&block| puts(block.call) }
             allow(ctx).to receive(:not_found)
             allow(ctx).to receive(:cache).with(String, anything) do |_, val|

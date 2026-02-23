@@ -74,6 +74,8 @@ describe FakeFunction do
             ctx
           end
 
+          after { ENV.delete('VAULT_TOKEN') }
+
           it 'exits early if ENV VAULT_TOKEN is set to IGNORE-VAULT' do
             ENV['VAULT_TOKEN'] = 'IGNORE-VAULT'
             expect(context).to receive(:not_found)

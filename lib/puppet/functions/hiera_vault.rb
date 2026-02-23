@@ -126,6 +126,8 @@ Puppet::Functions.create_function(:hiera_vault) do
   def vault_get_value(key, options, context)
     raise ArgumentError, "[hiera-vault] invalid value for default_field_parse: '#{options['default_field_parse']}', should be one of 'string','json'" unless ['string', 'json', nil].include?(options['default_field_parse'])
 
+    raise ArgumentError, "[hiera-vault] invalid value for default_field_behavior: '#{options['default_field_behavior']}', should be one of 'ignore','only'" unless ['ignore', 'only', nil].include?(options['default_field_behavior'])
+
     raise ArgumentError, "[hiera-vault] invalid value for cache_for: '#{options['cache_for']}', should be a number or nil" if !options['cache_for'].nil? && (!options['cache_for'].is_a? Numeric)
 
     cached_value = $cache.get(key, options)
@@ -186,6 +188,11 @@ Puppet::Functions.create_function(:hiera_vault) do
               return nil
             end
 
+            new_answer = secret[options['default_field'].to_sym]
+            if options['default_field_parse'] == 'json'
+              new_answer = JSON.parse(new_answer.to_s) rescue new_answer
+              new_answer = stringify_keys(new_answer) if new_answer.is_a?(Hash)
+            end
           else
             # Turn secret's hash keys into strings allow for nested arrays and hashes
             # this enables support for create resources etc
