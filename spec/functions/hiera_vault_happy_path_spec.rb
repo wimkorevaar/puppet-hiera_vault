@@ -37,6 +37,8 @@ describe FakeFunction do
     }
   end
 
+  after { ENV.delete('VAULT_TOKEN') }
+
   def vault_test_client
     Vault::Client.new(
       address: RSpec::VaultServer.address,
@@ -73,8 +75,6 @@ describe FakeFunction do
             end
             ctx
           end
-
-          after { ENV.delete('VAULT_TOKEN') }
 
           it 'exits early if ENV VAULT_TOKEN is set to IGNORE-VAULT' do
             ENV['VAULT_TOKEN'] = 'IGNORE-VAULT'

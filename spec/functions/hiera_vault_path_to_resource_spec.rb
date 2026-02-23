@@ -108,9 +108,7 @@ describe FakeFunction do
 
             context "regex matches convert_paths_to_resources but the path doesn't path exist" do
               it 'returns nil' do
-                expect do
-                  function.lookup_key('nonexisting/resources', vault_options.merge('convert_paths_to_resources' => ['.*\/resources']), context)
-                end.to be_nil
+                expect(function.lookup_key('nonexisting/resources', vault_options.merge('convert_paths_to_resources' => ['.*\/resources']), context)).to be_nil
               end
 
               it 'throws error when strict_mode is set to true' do
@@ -122,9 +120,7 @@ describe FakeFunction do
 
             it 'does not return the resource if regex does not match convert_paths_to_resources' do
               expect(context).to receive(:not_found)
-              expect do
-                function.lookup_key('blahblah', vault_options.merge('convert_paths_to_resources' => ['.*\/resources']), context)
-              end.to be_nil
+              expect(function.lookup_key('blahblah', vault_options.merge('convert_paths_to_resources' => ['.*\/resources']), context)).to be_nil
             end
           end
         end
