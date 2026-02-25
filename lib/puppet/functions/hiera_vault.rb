@@ -94,6 +94,8 @@ Puppet::Functions.create_function(:hiera_vault) do
     raise Puppet::DataBinding::LookupError, '[hiera-vault] Must install thread gem to use hiera-vault backend'
   end
 
+  # Entry point for Hiera: lookup a single key. Dispatches to vault_get_value (single secret)
+  # or vault_get_resources (list of resources under a path) depending on convert_paths_to_resources.
   dispatch :lookup_key do
     param 'Variant[String, Numeric]', :key
     param 'Hash', :options
@@ -123,6 +125,9 @@ Puppet::Functions.create_function(:hiera_vault) do
     token
   end
 
+  # Looks up a single secret from Vault: tries each mount/path, returns the first match.
+  # Handles default_field (extract one key from secret), default_field_parse (json/string),
+  # v1/v2 paths, caching, and strict_mode. Used when the key does not match convert_paths_to_resources.
   def vault_get_value(key, options, context)
     raise ArgumentError, "[hiera-vault] invalid value for default_field_parse: '#{options['default_field_parse']}', should be one of 'string','json'" unless ['string', 'json', nil].include?(options['default_field_parse'])
 
@@ -180,6 +185,8 @@ Puppet::Functions.create_function(:hiera_vault) do
           next if secret.nil?
 
           context.explain { "[hiera-vault] Read secret: #{key}" }
+          # When default_field is set: return only that key's value (optionally JSON-parsed).
+          # default_field_behavior 'ignore' = use default_field only when secret has that single key; 'only' = always use it when present.
           if options['default_field'] and (['ignore', nil].include?(options['default_field_behavior']) ||
           (secret.has_key?(options['default_field'].to_sym) && secret.length == 1))
 
@@ -220,6 +227,9 @@ Puppet::Functions.create_function(:hiera_vault) do
     end
   end
 
+  # "Path as resource" feature: treat the lookup key as a path prefix and return a hash of
+  # resources (each child under that path is one secret). Used when key matches convert_paths_to_resources.
+  # Lists the path via vault_list_path, then reads each child with vault_read_resource.
   def vault_get_resources(key, options, context)
     strict_mode = (options.key?('strict_mode') and options['strict_mode'])
     found_resources = {}
@@ -255,10 +265,13 @@ Puppet::Functions.create_function(:hiera_vault) do
     found_resources.empty? ? nil : found_resources
   end
 
+  # True when the key matches one of the convert_paths_to_resources regexes (path is treated as resource path).
   def resource_path?(path, resource_paths)
     path[resource_paths] == path
   end
 
+  # Main lookup: validates options, applies confine_to_keys/strip_from_keys/token, then either
+  # vault_get_resources (key matches convert_paths_to_resources) or vault_get_value (single secret).
   def lookup_key(key, options, context)
     convert_paths_to_resources = options['convert_paths_to_resources'] || []
     raise ArgumentError, '[hiera-vault] convert_paths_to_resources must be an array' unless convert_paths_to_resources.is_a?(Array)
@@ -270,6 +283,7 @@ Puppet::Functions.create_function(:hiera_vault) do
     end
     convert_paths_to_resources_match = Regexp.union(convert_paths_to_resources)
 
+    # confine_to_keys: only handle keys that match one of the regexes; otherwise skip this backend.
     if confine_keys = options['confine_to_keys']
       raise ArgumentError, '[hiera-vault] confine_to_keys must be an array' unless confine_keys.is_a?(Array)
 
@@ -283,7 +297,6 @@ Puppet::Functions.create_function(:hiera_vault) do
 
       unless key[regex_key_match] == key
         context.explain { "[hiera-vault] Skipping hiera_vault backend because key '#{key}' does not match confine_to_keys" }
-        # Key does not match confine_to_keys; signal not_found so Hiera can try other backends.
         return context.not_found
       end
     end
@@ -303,15 +316,17 @@ Puppet::Functions.create_function(:hiera_vault) do
 
     raise ArgumentError, '[hiera-vault] no token set in options and no token in VAULT_TOKEN' if vault_token(options).nil?
 
+    # Deprecated mount name; user must migrate to 'kv' (or explicit mount names).
     raise ArgumentError, '[hiera-vault] generic is no longer valid - change to kv' if options['mounts']['generic']
 
+    # Route: key matching convert_paths_to_resources → list resources; else → single secret lookup.
     result = if resource_path?(key, convert_paths_to_resources_match)
                vault_get_resources(key, options, context)
              else
                vault_get_value(key, options, context)
              end
 
-    # Allow hiera to look beyond vault if the value is not found
+    # Allow hiera to try other backends when not found, when continue_if_not_found is set.
     continue_if_not_found = options['continue_if_not_found'] || false
 
     if result.nil? && continue_if_not_found
@@ -353,6 +368,7 @@ Puppet::Functions.create_function(:hiera_vault) do
     keys
   end
 
+  # Reads one KV secret at full_path and returns its data as a string-keyed hash (for one "resource").
   def vault_read_resource(full_path, context)
     mount = full_path.split('/').first
     path  = full_path.gsub("#{mount}/", '')
@@ -374,6 +390,8 @@ Puppet::Functions.create_function(:hiera_vault) do
     stringify_keys(value.data)
   end
 
+  # Configures the global Vault client from options (address, token, SSL), checks seal status,
+  # then yields. Used by both vault_get_value and vault_get_resources so connection logic lives in one place.
   def with_vault_connection(options, context)
     $hiera_vault_mutex.synchronize do
       # If our Vault client has got cleaned up by a previous shutdown call, reinstate it
@@ -403,7 +421,7 @@ Puppet::Functions.create_function(:hiera_vault) do
     end
   end
 
-  # Stringify key:values so user sees expected results and nested objects
+  # Recursively stringify hash keys (and nested hashes/arrays) so Puppet/Hiera get string keys.
   def stringify_keys(value)
     case value
     when String
@@ -419,6 +437,7 @@ Puppet::Functions.create_function(:hiera_vault) do
     end
   end
 
+  # Expands path templates with context interpolation; supports comma-separated segments for multiple paths.
   def interpolate(context, paths)
     allowed_paths = []
     paths.each do |path|
@@ -431,7 +450,7 @@ Puppet::Functions.create_function(:hiera_vault) do
     allowed_paths
   end
 
-  # [[secret], [puppet], [scope1, scope2]] => ['secret/puppet/scope1', 'secret/puppet/scope2']
+  # Builds all combinations: [[secret], [puppet], [scope1, scope2]] => ['secret/puppet/scope1', 'secret/puppet/scope2']
   def build_paths(segments)
     paths = [[]]
     segments.each do |segment|
