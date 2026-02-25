@@ -38,10 +38,7 @@ describe FakeFunction do
       }
     }
   end
-
-  # Clean up VAULT_TOKEN after each example so tests that set IGNORE-VAULT don't affect others.
-  after { ENV.delete('VAULT_TOKEN') }
-
+  
   def vault_test_client
     Vault::Client.new(
       address: RSpec::VaultServer.address,
